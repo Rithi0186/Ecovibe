@@ -61,7 +61,7 @@ export default function GreenSwap() {
     const [form, setForm] = useState({
         title: '', description: '', category: '', subcategory: '',
         condition: 'Good', priceType: 'free', priceAmount: '',
-        pickupPoint: '', images: []
+        pickupPoint: '', sellerRollNo: profile?.student_id || '', sellerPhone: '', images: []
     })
     const [creating, setCreating] = useState(false)
     const [imageFiles, setImageFiles] = useState([])
@@ -114,12 +114,14 @@ export default function GreenSwap() {
                     category: form.category, subcategory: form.subcategory,
                     condition: form.condition, price_type: form.priceType,
                     price_amount: parseFloat(form.priceAmount) || 0,
-                    pickup_point_id: form.pickupPoint || null, images: imageUrls,
+                    pickup_point_id: form.pickupPoint || null,
+                    seller_roll_no: form.sellerRollNo.trim(), seller_phone: form.sellerPhone.trim(),
+                    images: imageUrls,
                     status: 'active',
                 })
                 toast.success('Listing created! 🎉')
                 setShowCreate(false)
-                setForm({ title: '', description: '', category: '', subcategory: '', condition: 'Good', priceType: 'free', priceAmount: '', pickupPoint: '', images: [] })
+                setForm({ title: '', description: '', category: '', subcategory: '', condition: 'Good', priceType: 'free', priceAmount: '', pickupPoint: '', sellerRollNo: profile?.student_id || '', sellerPhone: '', images: [] })
                 setImageFiles([])
                 loadListings()
                 setCreating(false)
@@ -153,7 +155,16 @@ export default function GreenSwap() {
 
     function handleRequestAction(reqId, status) {
         try {
+            const req = localDb.getById('swap_requests', reqId)
             localDb.update('swap_requests', reqId, { status })
+
+            if (status === 'accepted' && req) {
+                localDb.update('marketplace_listings', req.listing_id, { status: 'sold' })
+                // Update all other pending requests for this listing to 'rejected'
+                const otherReqs = localDb.query('swap_requests', r => r.listing_id === req.listing_id && r.id !== reqId && r.status === 'pending')
+                otherReqs.forEach(oReq => localDb.update('swap_requests', oReq.id, { status: 'rejected' }))
+            }
+
             toast.success(`Request ${status}`)
             loadListings()
         } catch (err) { toast.error(err.message) }
@@ -289,7 +300,7 @@ export default function GreenSwap() {
                                     {requested && (
                                         <div style={{
                                             position: 'absolute', top: '10px', right: '10px',
-                                            padding: '4px 10px', borderRadius: '8px', fontSize: '11px', fontWeight: 700,
+                                            padding: '8px 15px', borderRadius: '8px', fontSize: '11px', fontWeight: 700,
                                             background: '#fef3c7', color: '#d97706', border: '1px solid #fde68a',
                                             backdropFilter: 'blur(4px)'
                                         }}>⏳ Requested</div>
@@ -341,6 +352,24 @@ export default function GreenSwap() {
                                 </div>
                             ))}
                         </div>
+
+                        {/* Contact Details Section */}
+                        {(selectedListing.seller_roll_no || selectedListing.seller_phone) && (
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', fontSize: '14px' }}>
+                                {selectedListing.seller_roll_no && (
+                                    <div style={{ padding: '12px', background: '#f0f9ff', borderRadius: '12px' }}>
+                                        <span style={{ color: '#0284c7', fontSize: '12px' }}>Seller Roll No</span>
+                                        <p style={{ fontWeight: 500, color: '#0369a1' }}>{selectedListing.seller_roll_no}</p>
+                                    </div>
+                                )}
+                                {selectedListing.seller_phone && (
+                                    <div style={{ padding: '12px', background: '#f0f9ff', borderRadius: '12px' }}>
+                                        <span style={{ color: '#0284c7', fontSize: '12px' }}>Seller Phone</span>
+                                        <p style={{ fontWeight: 500, color: '#0369a1' }}>{selectedListing.seller_phone}</p>
+                                    </div>
+                                )}
+                            </div>
+                        )}
                         <div style={{ padding: '12px', background: '#e8f5e9', borderRadius: '12px', fontSize: '14px' }}>
                             <p style={{ color: '#2e7d32', fontWeight: 500 }}>💰 Payment: Cash on Delivery</p>
                             <p style={{ color: '#43a047', fontSize: '12px', marginTop: '4px' }}>Meet at campus pickup point</p>
@@ -356,7 +385,8 @@ export default function GreenSwap() {
                                 </div>
                             ) : (
                                 <button onClick={() => { openRequestModal(selectedListing); setSelectedListing(null); }} style={btnGreen}>
-                                    <MessageCircle size={16} /> Request This Item
+                                    <MessageCircle size={16} />
+                                    {(selectedListing.price_type === 'custom' || selectedListing.price_type === 'minimal') ? 'Buy This Item' : 'Request This Item'}
                                 </button>
                             )
                         )}
@@ -366,7 +396,7 @@ export default function GreenSwap() {
 
             {/* Create Listing Modal */}
             {/* Buyer Request Modal */}
-            <Modal isOpen={!!requestModal} onClose={() => setRequestModal(null)} title="Request Item" size="sm">
+            <Modal isOpen={!!requestModal} onClose={() => setRequestModal(null)} title={(requestModal?.price_type === 'custom' || requestModal?.price_type === 'minimal') ? "Buy Item" : "Request Item"} size="sm">
                 {requestModal && (
                     <form onSubmit={handleRequest} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                         {/* Item info */}
@@ -443,6 +473,16 @@ export default function GreenSwap() {
                             <select style={inputStyle} value={form.condition} onChange={e => setForm(p => ({ ...p, condition: e.target.value }))}>
                                 {CONDITIONS.map(c => <option key={c} value={c}>{c}</option>)}
                             </select>
+                        </div>
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '4px' }}>Your Roll No *</label>
+                            <input style={inputStyle} placeholder="E.g., STU001" value={form.sellerRollNo} onChange={e => setForm(p => ({ ...p, sellerRollNo: e.target.value }))} required />
+                        </div>
+                        <div>
+                            <label style={{ display: 'block', fontSize: '14px', fontWeight: 500, color: '#374151', marginBottom: '4px' }}>Your Phone Number</label>
+                            <input type="tel" style={inputStyle} placeholder="(Optional) for faster contact" value={form.sellerPhone} onChange={e => setForm(p => ({ ...p, sellerPhone: e.target.value }))} />
                         </div>
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
